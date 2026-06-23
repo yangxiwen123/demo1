@@ -1,0 +1,6 @@
+# 忽略所有文件和目录
+/*
+
+# 但保留 pomodoro.html 和自身
+!.gitignore
+!pomodoro.html
