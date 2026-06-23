@@ -6,9 +6,6 @@
 <title>🍅 番茄钟</title>
 <style>
   :root {
-    --work: #e74c3c;
-    --short-break: #2ecc71;
-    --long-break: #3498db;
     --bg: #f8f9fa;
     --card: #ffffff;
     --text: #2c3e50;
@@ -16,6 +13,11 @@
     --border: #e9ecef;
     --shadow: 0 4px 24px rgba(0,0,0,0.08);
   }
+
+  /* ---- Mode color map — set via [data-mode] ---- */
+  .app[data-mode="work"]       { --accent: #e74c3c; }
+  .app[data-mode="shortBreak"] { --accent: #2ecc71; }
+  .app[data-mode="longBreak"]  { --accent: #3498db; }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -67,13 +69,9 @@
 
   .mode-tab.active {
     background: #fff;
-    color: var(--text);
+    color: var(--accent);
     box-shadow: 0 1px 4px rgba(0,0,0,0.1);
   }
-
-  .mode-tab.work.active    { color: var(--work); }
-  .mode-tab.sbreak.active  { color: var(--short-break); }
-  .mode-tab.lbreak.active  { color: var(--long-break); }
 
   /* ---- Timer Ring ---- */
   .timer-ring-wrapper {
@@ -97,15 +95,11 @@
 
   .ring-progress {
     fill: none;
-    stroke: var(--work);
+    stroke: var(--accent);
     stroke-width: 8;
     stroke-linecap: round;
     transition: stroke-dashoffset 0.3s linear, stroke 0.4s ease;
   }
-
-  .ring-progress.work    { stroke: var(--work); }
-  .ring-progress.sbreak  { stroke: var(--short-break); }
-  .ring-progress.lbreak  { stroke: var(--long-break); }
 
   .timer-text {
     position: absolute;
@@ -120,11 +114,8 @@
     font-variant-numeric: tabular-nums;
     letter-spacing: -1px;
     line-height: 1;
+    color: var(--accent);
   }
-
-  .time-display.work    { color: var(--work); }
-  .time-display.sbreak  { color: var(--short-break); }
-  .time-display.lbreak  { color: var(--long-break); }
 
   .status-label {
     font-size: 13px;
@@ -159,12 +150,9 @@
     width: 64px; height: 64px;
     font-size: 24px;
     color: #fff;
+    background: var(--accent);
     box-shadow: 0 4px 16px rgba(0,0,0,0.18);
   }
-
-  .btn-start.work    { background: var(--work); }
-  .btn-start.sbreak  { background: var(--short-break); }
-  .btn-start.lbreak  { background: var(--long-break); }
 
   .btn-start:hover { filter: brightness(1.1); }
 
@@ -202,7 +190,7 @@
     transition: all 0.3s ease;
   }
 
-  .tomato-dot.done { background: var(--work); }
+  .tomato-dot.done { background: var(--accent); }
 
   /* ---- Settings Panel ---- */
   .settings-toggle {
@@ -275,23 +263,23 @@
 </head>
 <body>
 
-<div class="app">
+<div class="app" id="app" data-mode="work">
   <!-- Mode Tabs -->
   <div class="mode-tabs">
-    <button class="mode-tab work active" data-mode="work">🍅 工作</button>
-    <button class="mode-tab sbreak" data-mode="shortBreak">☕ 短休</button>
-    <button class="mode-tab lbreak" data-mode="longBreak">🌴 长休</button>
+    <button class="mode-tab active" data-mode="work">🍅 工作</button>
+    <button class="mode-tab" data-mode="shortBreak">☕ 短休</button>
+    <button class="mode-tab" data-mode="longBreak">🌴 长休</button>
   </div>
 
   <!-- Timer Ring -->
   <div class="timer-ring-wrapper">
     <svg class="timer-ring" viewBox="0 0 260 260">
       <circle class="ring-bg" cx="130" cy="130" r="120"/>
-      <circle class="ring-progress work" id="ring" cx="130" cy="130" r="120"
+      <circle class="ring-progress" id="ring" cx="130" cy="130" r="120"
               stroke-dashoffset="0"/>
     </svg>
     <div class="timer-text">
-      <div class="time-display work" id="timeDisplay">25:00</div>
+      <div class="time-display" id="timeDisplay">25:00</div>
       <div class="status-label" id="statusLabel">准备开始</div>
     </div>
   </div>
@@ -299,7 +287,7 @@
   <!-- Controls -->
   <div class="controls">
     <button class="btn btn-secondary" id="btnReset" title="重置">↺</button>
-    <button class="btn btn-start work" id="btnStart" title="开始">▶</button>
+    <button class="btn btn-start" id="btnStart" title="开始">▶</button>
     <button class="btn btn-secondary" id="btnSkip" title="跳过">⏭</button>
   </div>
 
@@ -344,20 +332,51 @@
   const POMODOROS_PER_LONG_BREAK = 4;
   const MAX_VISIBLE_DOTS = 8;
   const TICK_MS = 1000;
+  const STORAGE_KEY = 'pomodoro';
+
+  const MODES = {
+    work:       { emoji: '🍅', runningLabel: '专注中…' },
+    shortBreak: { emoji: '☕', runningLabel: '休息中…' },
+    longBreak:  { emoji: '🌴', runningLabel: '休息中…' },
+  };
+
+  // ─────────────────────────────────────
+  // localStorage persistence
+  // ─────────────────────────────────────
+  function loadPersisted() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return {};
+      return JSON.parse(raw);
+    } catch { return {}; }
+  }
+
+  function savePersisted(data) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+  }
+
+  function getTodayKey() {
+    return new Date().toISOString().slice(0, 10); // "2026-06-23"
+  }
 
   // ─────────────────────────────────────
   // State
   // ─────────────────────────────────────
+  const persisted = loadPersisted();
+  const todayKey = getTodayKey();
+
   const state = {
-    mode: 'work',           // 'work' | 'shortBreak' | 'longBreak'
+    mode: 'work',
     running: false,
-    timeLeft: 25 * 60,      // seconds
-    totalTime: 25 * 60,
-    pomodoroCount: 0,
+    timeLeft: (persisted.workMins || 25) * 60,
+    totalTime: (persisted.workMins || 25) * 60,
+    pomodoroCount: (persisted.date === todayKey ? persisted.count || 0 : 0),
     intervalId: null,
   };
 
-  // Shared AudioContext (created lazily, reused forever)
+  // ─────────────────────────────────────
+  // Audio
+  // ─────────────────────────────────────
   let _audioCtx = null;
   function getAudioContext() {
     if (!_audioCtx) {
@@ -371,6 +390,7 @@
   // ─────────────────────────────────────
   // DOM refs
   // ─────────────────────────────────────
+  const $app           = document.getElementById('app');
   const $timeDisplay   = document.getElementById('timeDisplay');
   const $statusLabel   = document.getElementById('statusLabel');
   const $ring          = document.getElementById('ring');
@@ -378,8 +398,7 @@
   const $btnReset      = document.getElementById('btnReset');
   const $btnSkip       = document.getElementById('btnSkip');
   const $modeTabs      = document.querySelectorAll('.mode-tab');
-  const $tomatoDots    = document.getElementById('tomatoDots');
-  const $dotEls        = [...$tomatoDots.querySelectorAll('.tomato-dot')];
+  const $dotEls        = [...document.querySelectorAll('.tomato-dot')];
   const $countLabel    = document.getElementById('countLabel');
   const $btnSettings   = document.getElementById('btnSettings');
   const $settingsPanel = document.getElementById('settingsPanel');
@@ -404,45 +423,61 @@
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
-  function setRingProgress(fraction) {
-    const offset = CIRCUMFERENCE * (1 - fraction);
-    $ring.setAttribute('stroke-dashoffset', offset);
-  }
-
-  function updateRingColor() {
-    $ring.className = 'ring-progress ' + state.mode;
-    $timeDisplay.className = 'time-display ' + state.mode;
-    $btnStart.className = 'btn btn-start ' + state.mode;
+  function persist() {
+    savePersisted({
+      date: getTodayKey(),
+      count: state.pomodoroCount,
+      workMins: parseInt($workMinutes.value, 10),
+      shortBreakMins: parseInt($shortBreakMinutes.value, 10),
+      longBreakMins: parseInt($longBreakMinutes.value, 10),
+    });
   }
 
   // ─────────────────────────────────────
-  // Render helpers
+  // Tab title & desktop notification
   // ─────────────────────────────────────
-  const LABELS = {
-    work:       { running: '专注中…', paused: '已暂停', ready: '准备开始' },
-    shortBreak: { running: '休息中…', paused: '已暂停', ready: '准备开始' },
-    longBreak:  { running: '休息中…', paused: '已暂停', ready: '准备开始' },
-  };
+  let _notifyGranted = false;
 
+  function requestNotification() {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'granted') { _notifyGranted = true; return; }
+    if (Notification.permission === 'denied') return;
+    // default → ask
+    Notification.requestPermission().then(p => { if (p === 'granted') _notifyGranted = true; });
+  }
+
+  function showNotification(title, body) {
+    if (_notifyGranted) {
+      new Notification(title, { body, icon: '🍅', tag: 'pomodoro' });
+    }
+  }
+
+  function updateTitle(timeStr) {
+    document.title = `${timeStr} - ${MODES[state.mode].emoji} 番茄钟`;
+  }
+
+  // ─────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────
   function renderTick() {
-    $timeDisplay.textContent = formatTime(state.timeLeft);
-    setRingProgress(state.timeLeft / state.totalTime);
+    const str = formatTime(state.timeLeft);
+    $timeDisplay.textContent = str;
+    $ring.setAttribute('stroke-dashoffset', CIRCUMFERENCE * (1 - state.timeLeft / state.totalTime));
+    updateTitle(str);
   }
 
   function render() {
     renderTick();
 
     // Status label
-    const lbl = LABELS[state.mode];
     if (!state.running && state.timeLeft === state.totalTime) {
-      $statusLabel.textContent = lbl.ready;
+      $statusLabel.textContent = '准备开始';
     } else if (state.running) {
-      $statusLabel.textContent = lbl.running;
+      $statusLabel.textContent = MODES[state.mode].runningLabel;
     } else {
-      $statusLabel.textContent = lbl.paused;
+      $statusLabel.textContent = '已暂停';
     }
 
-    // Start button icon
     $btnStart.textContent = state.running ? '⏸' : '▶';
 
     // Mode tabs
@@ -450,11 +485,7 @@
       tab.classList.toggle('active', tab.dataset.mode === state.mode);
     });
 
-    // Tomato dots
-    renderDots();
-  }
-
-  function renderDots() {
+    // Dots
     $dotEls.forEach((dot, i) => {
       dot.classList.toggle('done', i < state.pomodoroCount % MAX_VISIBLE_DOTS);
     });
@@ -474,11 +505,8 @@
   }
 
   function start() {
-    if (state.running) {
-      pause();
-      return;
-    }
-
+    if (state.running) { pause(); return; }
+    requestNotification(); // ask once on first interaction
     state.running = true;
     state.intervalId = setInterval(tick, TICK_MS);
     render();
@@ -495,6 +523,7 @@
     pause();
     state.timeLeft = state.totalTime;
     render();
+    updateTitle(formatTime(state.timeLeft));
   }
 
   function finish() {
@@ -505,12 +534,17 @@
 
     if (state.mode === 'work') {
       state.pomodoroCount++;
-      switchMode(state.pomodoroCount % POMODOROS_PER_LONG_BREAK === 0 ? 'longBreak' : 'shortBreak');
+      persist();
+
+      const nextMode = state.pomodoroCount % POMODOROS_PER_LONG_BREAK === 0 ? 'longBreak' : 'shortBreak';
+      showNotification('🍅 工作完成！', `已完成 ${state.pomodoroCount} 个番茄，该休息了`);
+      switchMode(nextMode);
     } else {
+      showNotification('☕ 休息结束！', '下一轮工作即将开始');
       switchMode('work');
     }
 
-    // Auto-start next session (state is already clean from switchMode)
+    // Auto-start next session
     state.running = true;
     state.intervalId = setInterval(tick, TICK_MS);
     render();
@@ -531,7 +565,7 @@
     state.mode = mode;
     state.timeLeft = getDuration(mode);
     state.totalTime = state.timeLeft;
-    updateRingColor();
+    $app.setAttribute('data-mode', mode);
   }
 
   // ─────────────────────────────────────
@@ -569,9 +603,7 @@
   // Event handlers
   // ─────────────────────────────────────
   $btnStart.addEventListener('click', start);
-
   $btnReset.addEventListener('click', reset);
-
   $btnSkip.addEventListener('click', skip);
 
   $modeTabs.forEach(tab => {
@@ -583,12 +615,10 @@
     });
   });
 
-  // Settings
   $btnSettings.addEventListener('click', () => {
     $settingsPanel.classList.toggle('open');
   });
 
-  // Apply settings on change
   [$workMinutes, $shortBreakMinutes, $longBreakMinutes].forEach(input => {
     input.addEventListener('change', () => {
       const min = parseInt(input.min, 10) || 1;
@@ -597,8 +627,8 @@
       if (isNaN(v) || v < min) v = min;
       if (v > max) v = max;
       input.value = v;
+      persist();
 
-      // Update current session if not running
       if (!state.running) {
         state.totalTime = getDuration(state.mode);
         state.timeLeft = state.totalTime;
@@ -609,24 +639,25 @@
 
   // Keyboard shortcuts
   document.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT') return; // don't capture when typing in settings
-    if (e.code === 'Space') {
-      e.preventDefault();
-      start();
-    } else if (e.code === 'KeyR') {
-      reset();
-    } else if (e.code === 'KeyS') {
-      skip();
-    }
+    if (e.target.tagName === 'INPUT') return;
+    if (e.code === 'Space') { e.preventDefault(); start(); }
+    else if (e.code === 'KeyR') { reset(); }
+    else if (e.code === 'KeyS') { skip(); }
   });
 
   // ─────────────────────────────────────
   // Init
   // ─────────────────────────────────────
+  // Restore persisted settings
+  if (persisted.workMins)       $workMinutes.value       = persisted.workMins;
+  if (persisted.shortBreakMins) $shortBreakMinutes.value = persisted.shortBreakMins;
+  if (persisted.longBreakMins)  $longBreakMinutes.value  = persisted.longBreakMins;
+
   $ring.setAttribute('stroke-dasharray', CIRCUMFERENCE.toFixed(2));
   state.timeLeft = getDuration('work');
   state.totalTime = state.timeLeft;
   render();
+  updateTitle(formatTime(state.timeLeft));
 </script>
 </body>
 </html>
